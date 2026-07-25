@@ -1,0 +1,15 @@
+version: '3.8'
+
+services:
+  bot:
+    build: .
+    container_name: welora_bot
+    restart: always
+    environment:
+      - TELEGRAM_API_ID=YOUR_TELEGRAM_API_ID
+      - TELEGRAM_API_HASH=YOUR_TELEGRAM_API_HASH
+      - TELEGRAM_BOT_TOKEN=YOUR_BOT_TOKEN_HERE
+      - DATABASE_PATH=bot_database.db
+      - SPAWN_INTERVAL=100
+    volumes:
+      - ./bot_database.db:/app/bot_database.db
