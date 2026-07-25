@@ -1,6 +1,6 @@
 import asyncio
 import logging
-from pyrogram import Client
+from pyrogram import Client, filters
 from pyrogram.types import BotCommand
 from database import init_db
 import config
@@ -20,6 +20,14 @@ bot = Client(
     bot_token=config.BOT_TOKEN,
     plugins=dict(root="modules")
 )
+
+# Global catch-all log handler to debug incoming messages
+@bot.on_message(filters.all, group=-100)
+async def log_all_messages(client, message):
+    text = message.text or message.caption or "[No Text/Media]"
+    chat_title = message.chat.title or "Private Chat"
+    user_name = message.from_user.first_name if message.from_user else "System/Bot"
+    logger.info(f"📥 [UPDATE RECEIVED] Chat: {chat_title} ({message.chat.id}) | From: {user_name} ({message.from_user.id if message.from_user else 'N/A'}) | Msg: {text}")
 
 async def main():
     logger.info("Initializing SQLite database...")
