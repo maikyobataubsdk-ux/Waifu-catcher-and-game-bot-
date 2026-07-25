@@ -5,9 +5,10 @@ from database import (
     get_db, create_or_get_user, get_top_richest, get_group_settings, update_group_settings, dynamic_command
 )
 from utils.images import generate_welcome_card, to_small_caps
+import config
 
-# Set bot administrators list (mocked ID or loaded dynamically)
-BOT_ADMIN_IDS = [7777777, 9999999]
+# Use bot administrators configured in config
+BOT_ADMIN_IDS = config.BOT_ADMIN_IDS
 
 async def is_eligible_admin(user_id: int) -> bool:
     """
