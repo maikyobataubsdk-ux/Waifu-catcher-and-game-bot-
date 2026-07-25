@@ -9,9 +9,7 @@ from database import (
     get_db, create_or_get_user, get_group_settings, update_user_balance, dynamic_command
 )
 from utils.images import generate_spawn_card, to_small_caps
-
-# Global spawn lock / tracker to simulate Redis caching behavior
-SPAWN_TRACKER = {}
+import utils.redis_cache as redis_cache
 
 async def trigger_spawn(client: Client, chat_id: int):
     async with get_db() as db:
@@ -20,7 +18,16 @@ async def trigger_spawn(client: Client, chat_id: int):
             if not waifu:
                 return
 
-            # Store active spawn
+            # Store active spawn in Redis cache
+            await redis_cache.set_active_spawn(
+                chat_id=chat_id,
+                waifu_id=waifu["id"],
+                name=waifu["name"],
+                rarity=waifu["rarity"],
+                price=waifu["price"]
+            )
+
+            # Store in database as well for dual-storage resilience
             now = int(time.time())
             await db.execute(
                 "INSERT OR REPLACE INTO active_spawns (chat_id, waifu_id, spawned_at) VALUES (?, ?, ?)",
@@ -76,15 +83,13 @@ async def auto_spawn_handler(client: Client, message: Message):
     if text.startswith("/") or text.startswith(prefix):
         return
 
-    if chat_id not in SPAWN_TRACKER:
-        SPAWN_TRACKER[chat_id] = {"counter": 0}
-
-    SPAWN_TRACKER[chat_id]["counter"] += 1
+    # Increment message counter using Redis caching
+    count = await redis_cache.incr_message_counter(chat_id)
 
     # Auto-spawn every 100 messages (configurable via test or environment)
     spawn_interval = int(os.environ.get("SPAWN_INTERVAL", "100"))
-    if SPAWN_TRACKER[chat_id]["counter"] >= spawn_interval:
-        SPAWN_TRACKER[chat_id]["counter"] = 0
+    if count >= spawn_interval:
+        await redis_cache.reset_message_counter(chat_id)
         await trigger_spawn(client, chat_id)
 
 @Client.on_message(dynamic_command(["grasp", "claim"]))
@@ -100,47 +105,61 @@ async def grasp_command(client: Client, message: Message):
     # Get user profile
     await create_or_get_user(user_id, username, first_name)
 
+    # Check active spawn using Redis Cache
+    spawn = await redis_cache.get_active_spawn(chat_id)
+    if not spawn:
+        # Fallback to database query if cache missed or if spawn was setup manually in tests
+        async with get_db() as db:
+            async with db.execute("""
+                SELECT s.waifu_id, w.name, w.rarity, w.price
+                FROM active_spawns s
+                JOIN waifus w ON s.waifu_id = w.id
+                WHERE s.chat_id = ?
+            """, (chat_id,)) as cursor:
+                row = await cursor.fetchone()
+                if row:
+                    spawn = {
+                        "waifu_id": row["waifu_id"],
+                        "name": row["name"],
+                        "rarity": row["rarity"],
+                        "price": row["price"]
+                    }
+
+    if not spawn:
+        err = to_small_caps("There is no active character to claim in this group!")
+        await message.reply_text(f"❌ {err}")
+        return
+
+    waifu_id = spawn["waifu_id"]
+    name = spawn["name"]
+    rarity = spawn["rarity"]
+
     async with get_db() as db:
-        # Check active spawn
-        async with db.execute("""
-            SELECT s.waifu_id, w.name, w.rarity, w.price
-            FROM active_spawns s
-            JOIN waifus w ON s.waifu_id = w.id
-            WHERE s.chat_id = ?
-        """, (chat_id,)) as cursor:
-            spawn = await cursor.fetchone()
-            if not spawn:
-                err = to_small_caps("There is no active character to claim in this group!")
-                await message.reply_text(f"❌ {err}")
-                return
+        # Add to harem
+        try:
+            await db.execute(
+                "INSERT INTO user_harems (user_id, waifu_id) VALUES (?, ?)",
+                (user_id, waifu_id)
+            )
+            # Delete from both cache and database
+            await redis_cache.delete_active_spawn(chat_id)
+            await db.execute("DELETE FROM active_spawns WHERE chat_id = ?", (chat_id,))
+            await db.commit()
 
-            waifu_id = spawn["waifu_id"]
-            name = spawn["name"]
-            rarity = spawn["rarity"]
-
-            # Add to harem
-            try:
-                await db.execute(
-                    "INSERT INTO user_harems (user_id, waifu_id) VALUES (?, ?)",
-                    (user_id, waifu_id)
-                )
-                await db.execute("DELETE FROM active_spawns WHERE chat_id = ?", (chat_id,))
-                await db.commit()
-
-                # Reward user with some XP for catch
-                await update_user_balance(user_id, xp_delta=50)
-                title = to_small_caps(f"Congratulations {first_name}!")
-                desc = to_small_caps(f"You have successfully claimed {name} ({rarity})!")
-                added = to_small_caps("She has been added to your /harem! (+50 XP)")
-                await message.reply_text(
-                    f"🎉 **{title}**\n"
-                    f"{desc}\n"
-                    f"{added}"
-                )
-            except Exception:
-                await db.rollback()
-                err = to_small_caps("You already have this character in your harem!")
-                await message.reply_text(f"❌ {err}")
+            # Reward user with some XP for catch
+            await update_user_balance(user_id, xp_delta=50)
+            title = to_small_caps(f"Congratulations {first_name}!")
+            desc = to_small_caps(f"You have successfully claimed {name} ({rarity})!")
+            added = to_small_caps("She has been added to your /harem! (+50 XP)")
+            await message.reply_text(
+                f"🎉 **{title}**\n"
+                f"{desc}\n"
+                f"{added}"
+            )
+        except Exception:
+            await db.rollback()
+            err = to_small_caps("You already have this character in your harem!")
+            await message.reply_text(f"❌ {err}")
 
 @Client.on_message(dynamic_command("harem"))
 async def harem_command(client: Client, message: Message):
