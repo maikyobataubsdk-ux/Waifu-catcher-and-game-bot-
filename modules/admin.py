@@ -4,7 +4,7 @@ from pyrogram.types import Message, ChatMemberUpdated
 from database import (
     get_db, create_or_get_user, get_top_richest, get_group_settings, update_group_settings, dynamic_command
 )
-from utils.images import generate_welcome_card
+from utils.images import generate_welcome_card, to_small_caps
 
 # Set bot administrators list (mocked ID or loaded dynamically)
 BOT_ADMIN_IDS = [7777777, 9999999]
@@ -47,7 +47,8 @@ async def group_moderation_handler(client: Client, message: Message):
         if any(word in text for word in TOXIC_WORDS):
             try:
                 await message.delete()
-                await client.send_message(chat_id, f"⚠️ **Toxicity Filter:** Message from {message.from_user.first_name or 'User'} deleted.")
+                label = to_small_caps("Toxicity Filter")
+                await client.send_message(chat_id, f"⚠️ **{label}:** Message from {message.from_user.first_name or 'User'} deleted.")
                 return
             except Exception:
                 pass
@@ -57,35 +58,44 @@ async def group_moderation_handler(client: Client, message: Message):
         if any(word in text for word in NSFW_WORDS):
             try:
                 await message.delete()
-                await client.send_message(chat_id, f"⚠️ **NSFW Filter:** Message from {message.from_user.first_name or 'User'} deleted.")
+                label = to_small_caps("NSFW Filter")
+                await client.send_message(chat_id, f"⚠️ **{label}:** Message from {message.from_user.first_name or 'User'} deleted.")
                 return
             except Exception:
                 pass
 
 @Client.on_message(dynamic_command("setgroup"))
 async def setgroup_command(client: Client, message: Message):
+    if not message.from_user:
+        return
+
     user_id = message.from_user.id
     chat_id = message.chat.id
 
     # Check permissions
     if not await is_eligible_admin(user_id):
-        await message.reply_text("❌ Permission Denied! This command can only be used by Bot Admins or the Top 5 Global Richest users.")
+        err_msg = to_small_caps("Permission Denied! This command can only be used by Bot Admins or the Top 5 Global Richest users.")
+        await message.reply_text(f"❌ {err_msg}")
         return
 
     # Usage: /setgroup <setting> <value>
-    # e.g., /setgroup prefix !
-    # e.g., /setgroup toxicity 1
-    # e.g., /setgroup nsfw 0
-    # e.g., /setgroup welcome Welcome to our guild, {name}!
     if len(message.command) < 3:
+        title = to_small_caps("Group Management Controls")
+        usage = to_small_caps("Usage:")
+        available = to_small_caps("Available Settings:")
+        prefix_desc = to_small_caps("Change custom prefix (default: /)")
+        toxicity_desc = to_small_caps("Toggle toxic filter")
+        nsfw_desc = to_small_caps("Toggle NSFW/adult contents filter")
+        welcome_desc = to_small_caps("Set custom group welcome message (use {name} placeholder)")
+
         await message.reply_text(
-            "⚙️ **Group Management Controls** ⚙️\n\n"
-            "Usage: `/setgroup <setting> <value>`\n\n"
-            "**Available Settings:**\n"
-            "• `prefix <char>` - Change custom prefix (default: `/`)\n"
-            "• `toxicity <0/1>` - Toggle toxic filter\n"
-            "• `nsfw <0/1>` - Toggle NSFW/adult contents filter\n"
-            "• `welcome <text>` - Set custom group welcome message (use `{name}` placeholder)"
+            f"⚙️ **{title}** ⚙️\n\n"
+            f"**{usage}** `/setgroup <setting> <value>`\n\n"
+            f"**{available}**\n"
+            f"• `prefix <char>` - {prefix_desc}\n"
+            f"• `toxicity <0/1>` - {toxicity_desc}\n"
+            f"• `nsfw <0/1>` - {nsfw_desc}\n"
+            f"• `welcome <text>` - {welcome_desc}"
         )
         return
 
@@ -94,30 +104,37 @@ async def setgroup_command(client: Client, message: Message):
 
     if setting == "prefix":
         await update_group_settings(chat_id, custom_prefix=value)
-        await message.reply_text(f"✅ Custom prefix updated to: `{value}`")
+        msg = to_small_caps("Custom prefix updated to:")
+        await message.reply_text(f"✅ {msg} `{value}`")
 
     elif setting == "toxicity":
         if value not in ["0", "1"]:
-            await message.reply_text("❌ Toxicity setting must be 0 (off) or 1 (on)!")
+            err = to_small_caps("Toxicity setting must be 0 (off) or 1 (on)!")
+            await message.reply_text(f"❌ {err}")
             return
         await update_group_settings(chat_id, toxicity_filter=int(value))
-        status = "ENABLED" if value == "1" else "DISABLED"
-        await message.reply_text(f"✅ Toxicity filter is now **{status}**.")
+        status = to_small_caps("ENABLED") if value == "1" else to_small_caps("DISABLED")
+        msg = to_small_caps("Toxicity filter is now")
+        await message.reply_text(f"✅ {msg} **{status}**.")
 
     elif setting == "nsfw":
         if value not in ["0", "1"]:
-            await message.reply_text("❌ NSFW setting must be 0 (off) or 1 (on)!")
+            err = to_small_caps("NSFW setting must be 0 (off) or 1 (on)!")
+            await message.reply_text(f"❌ {err}")
             return
         await update_group_settings(chat_id, nsfw_filter=int(value))
-        status = "ENABLED" if value == "1" else "DISABLED"
-        await message.reply_text(f"✅ NSFW filter is now **{status}**.")
+        status = to_small_caps("ENABLED") if value == "1" else to_small_caps("DISABLED")
+        msg = to_small_caps("NSFW filter is now")
+        await message.reply_text(f"✅ {msg} **{status}**.")
 
     elif setting == "welcome":
         await update_group_settings(chat_id, welcome_msg=value)
-        await message.reply_text(f"✅ Custom group welcome message set to:\n`{value}`")
+        msg = to_small_caps("Custom group welcome message set to:")
+        await message.reply_text(f"✅ {msg}\n`{value}`")
 
     else:
-        await message.reply_text("❌ Invalid setting! Use `/setgroup` to see options.")
+        err = to_small_caps("Invalid setting! Use /setgroup to see options.")
+        await message.reply_text(f"❌ {err}")
 
 # Handler for welcome trigger on member updates or bot addition
 @Client.on_chat_member_updated()
@@ -132,10 +149,11 @@ async def welcome_member_handler(client: Client, chat_member_updated: ChatMember
             card_data = generate_welcome_card(group_name)
             bio = io.BytesIO(card_data)
             bio.name = f"welcome_{chat_id}.png"
+            caption = to_small_caps("Thank you for adding Welora Gacha RPG & Economy Bot! Use /game to view instructions.")
             await client.send_photo(
                 chat_id,
                 bio,
-                caption="💖 **Thank you for adding Welora Gacha RPG & Economy Bot!**\n\nUse `/game` to view instructions."
+                caption=f"💖 **{caption}**"
             )
         except Exception:
             pass
@@ -155,6 +173,7 @@ async def welcome_member_handler(client: Client, chat_member_updated: ChatMember
         # Format welcome message
         formatted_msg = welcome_template.replace("{name}", user.first_name)
 
+        title = to_small_caps("New Member Joined!")
         try:
             # Generate group welcome banner on the fly and send it
             card_data = generate_welcome_card(group_name)
@@ -163,8 +182,8 @@ async def welcome_member_handler(client: Client, chat_member_updated: ChatMember
             await client.send_photo(
                 chat_id,
                 bio,
-                caption=f"👋 **New Member Joined!**\n\n{formatted_msg}"
+                caption=f"👋 **{title}**\n\n{formatted_msg}"
             )
         except Exception:
             # Fallback to plain text if photo fails
-            await client.send_message(chat_id, f"👋 **New Member Joined!**\n\n{formatted_msg}")
+            await client.send_message(chat_id, f"👋 **{title}**\n\n{formatted_msg}")
