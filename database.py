@@ -197,6 +197,7 @@ async def update_group_settings(chat_id: int, custom_prefix: str = None, toxicit
 
 # Dynamic prefix command filter
 from pyrogram import filters
+from pyrogram.enums import ChatType
 
 def dynamic_command(commands):
     if isinstance(commands, str):
@@ -209,7 +210,8 @@ def dynamic_command(commands):
 
         chat_id = message.chat.id
         # Fetch prefix dynamically from DB or default to '/'
-        if message.chat and message.chat.type in ["group", "supergroup"]:
+        chat_type = getattr(message.chat.type, 'value', message.chat.type) if message.chat else None
+        if chat_type and str(chat_type).lower() in ["group", "supergroup"]:
             settings = await get_group_settings(chat_id)
             prefix = settings["custom_prefix"] if settings else "/"
         else:
