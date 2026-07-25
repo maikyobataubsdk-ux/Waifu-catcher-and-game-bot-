@@ -2,8 +2,8 @@ import os
 
 # Telegram API Configuration credentials
 # Can be set via environment or default placeholder
-API_ID = int(os.environ.get("TELEGRAM_API_ID", "1234567"))
-API_HASH = os.environ.get("TELEGRAM_API_HASH", "abcdef1234567890abcdef1234567890")
+API_ID = int(os.environ.get("TELEGRAM_API_ID", "37729457"))
+API_HASH = os.environ.get("TELEGRAM_API_HASH", "bb68973b7efcbbd074cda984c95502d6")
 BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "123456789:ABCdefGhIJKlmNoPQRsTUVwxyZ")
 
 # Application Configuration
