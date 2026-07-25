@@ -71,7 +71,9 @@ async def auto_spawn_handler(client: Client, message: Message):
 
     # Exclude command messages from count
     text = message.text or ""
-    if text.startswith("/"):
+    settings = await get_group_settings(chat_id)
+    prefix = settings["custom_prefix"] if settings else "/"
+    if text.startswith("/") or text.startswith(prefix):
         return
 
     if chat_id not in SPAWN_TRACKER:
