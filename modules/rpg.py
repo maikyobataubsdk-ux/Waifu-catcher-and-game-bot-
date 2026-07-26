@@ -6,9 +6,7 @@ from database import (
     get_db, create_or_get_user, update_user_balance, dynamic_command
 )
 from utils.images import to_small_caps
-
-# Global memory Cooldown tracker
-RPG_COOLDOWN = {}
+import utils.redis_cache as redis_cache
 
 @Client.on_message(dynamic_command("rob"))
 async def rob_command(client: Client, message: Message):
@@ -32,12 +30,11 @@ async def rob_command(client: Client, message: Message):
 
     target_user = await create_or_get_user(target.id, target.username, target.first_name)
 
-    # Check cooldown
+    # Check cooldown using Redis cache
     now = int(time.time())
-    cooldown_time = 300  # 5 minutes rob cooldown
-    last_rob = RPG_COOLDOWN.get(user_id, {}).get("last_rob", 0)
-    if (now - last_rob) < cooldown_time:
-        time_left = cooldown_time - (now - last_rob)
+    cooldown_expiry = await redis_cache.get_cooldown_expiry(user_id, "rob")
+    if cooldown_expiry > now:
+        time_left = cooldown_expiry - now
         title = to_small_caps("Rob on Cooldown!")
         desc = to_small_caps(f"You must wait {time_left} more seconds before committing another robbery.")
         await message.reply_text(f"⏱️ **{title}**\n{desc}")
@@ -59,10 +56,8 @@ async def rob_command(client: Client, message: Message):
         await message.reply_text(f"💀 **{title}**\n**{target.first_name}** {desc}")
         return
 
-    # Set cooldown
-    if user_id not in RPG_COOLDOWN:
-        RPG_COOLDOWN[user_id] = {}
-    RPG_COOLDOWN[user_id]["last_rob"] = now
+    # Set cooldown using Redis cache
+    await redis_cache.set_cooldown(user_id, "rob", 300)  # 5 minutes
 
     # Check target coins
     target_coins = target_user["coins"]
@@ -130,12 +125,11 @@ async def kill_command(client: Client, message: Message):
 
     target_user = await create_or_get_user(target.id, target.username, target.first_name)
 
-    # Check cooldown
+    # Check cooldown using Redis cache
     now = int(time.time())
-    cooldown_time = 600  # 10 minutes kill cooldown
-    last_kill = RPG_COOLDOWN.get(user_id, {}).get("last_kill", 0)
-    if (now - last_kill) < cooldown_time:
-        time_left = cooldown_time - (now - last_kill)
+    cooldown_expiry = await redis_cache.get_cooldown_expiry(user_id, "kill")
+    if cooldown_expiry > now:
+        time_left = cooldown_expiry - now
         title = to_small_caps("Assassination on Cooldown!")
         desc = to_small_caps(f"You must wait {time_left} more seconds before trying again.")
         await message.reply_text(f"⏱️ **{title}**\n{desc}")
@@ -164,10 +158,8 @@ async def kill_command(client: Client, message: Message):
         await message.reply_text(f"❌ {err}")
         return
 
-    # Set cooldown
-    if user_id not in RPG_COOLDOWN:
-        RPG_COOLDOWN[user_id] = {}
-    RPG_COOLDOWN[user_id]["last_kill"] = now
+    # Set cooldown using Redis cache
+    await redis_cache.set_cooldown(user_id, "kill", 600)  # 10 minutes
 
     # Deduct planning cost
     await update_user_balance(user_id, coins_delta=-assassination_cost)
@@ -188,13 +180,14 @@ async def kill_command(client: Client, message: Message):
                 WHERE id = ?
             """, (stolen_coins, stolen_xp, user_id))
 
+            # Rewrite MAX(0, ...) with standard compatible CASE WHEN statement
             await db.execute("""
                 UPDATE users SET
-                    coins = MAX(0, coins - ?),
-                    xp = MAX(0, xp - ?),
+                    coins = CASE WHEN coins - ? < 0 THEN 0 ELSE coins - ? END,
+                    xp = CASE WHEN xp - ? < 0 THEN 0 ELSE xp - ? END,
                     is_dead_until = ?
                 WHERE id = ?
-            """, (stolen_coins, stolen_xp, now + death_duration, target.id))
+            """, (stolen_coins, stolen_coins, stolen_xp, stolen_xp, now + death_duration, target.id))
             await db.commit()
 
         title = to_small_caps("Assassination Successful!")

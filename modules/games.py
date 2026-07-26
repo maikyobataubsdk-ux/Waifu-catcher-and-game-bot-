@@ -5,9 +5,7 @@ from database import (
     create_or_get_user, update_user_balance, dynamic_command
 )
 from utils.images import to_small_caps
-
-# Global word scrabble tracker: chat_id -> original_word
-ACTIVE_SCRABBLES = {}
+import utils.redis_cache as redis_cache
 
 # Selection of words for scrabble mini-game
 SCRABBLE_WORDS = [
@@ -100,7 +98,8 @@ async def scrabble_command(client: Client, message: Message):
     while scrambled == word and len(word) > 1:
         scrambled = "".join(random.sample(word, len(word)))
 
-    ACTIVE_SCRABBLES[chat_id] = word
+    # Save active scrabble in Redis cache
+    await redis_cache.set_scrabble_word(chat_id, word)
 
     title = to_small_caps("SCRABBLE MINI-GAME TRIGGERED!")
     desc = to_small_caps("Unscramble the word below to win 500 coins:")
@@ -116,15 +115,16 @@ async def scrabble_command(client: Client, message: Message):
 @Client.on_message(filters.group & ~filters.service & ~filters.bot)
 async def scrabble_listener(client: Client, message: Message):
     chat_id = message.chat.id
-    if chat_id not in ACTIVE_SCRABBLES:
+
+    correct_word = await redis_cache.get_scrabble_word(chat_id)
+    if not correct_word:
         return
 
     user_answer = (message.text or "").strip().lower()
-    correct_word = ACTIVE_SCRABBLES[chat_id]
 
     if user_answer == correct_word:
-        # Clear active scrabble game
-        del ACTIVE_SCRABBLES[chat_id]
+        # Clear active scrabble game from cache
+        await redis_cache.delete_scrabble_word(chat_id)
 
         if not message.from_user:
             return
